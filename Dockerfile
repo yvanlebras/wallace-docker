@@ -7,6 +7,8 @@ RUN echo "force-unsafe-io" > /etc/dpkg/dpkg.cfg.d/02apt-speedup && \
     apt-get -qq update && apt-get install --no-install-recommends -y libgdal-dev libproj-dev net-tools procps libcurl4-openssl-dev libxml2-dev libssl-dev openjdk-8-jdk libgeos-dev texlive-xetex  texlive-fonts-recommended texlive-latex-recommended lmodern && \
     # Installing R package dedicated to the shniy app
     R CMD javareconf && \
+    Rscript -e "install.packages('rPython')" && \
+    Rscript -e "install.packages('leaflet')" && \
     Rscript -e "install.packages('wallace')" && \
     # Bash script to check traffic
     mkdir /srv/shiny-server/sample-apps/SIG
