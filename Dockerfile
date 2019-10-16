@@ -58,6 +58,7 @@ COPY ./shiny-server.conf /etc/shiny-server/shiny-server.conf
 
 # Bash script to launch all processes needed
 COPY shiny-server.sh /usr/bin/shiny-server.sh
+RUN chmod 777 /usr/bin/shiny-server.sh
 # Python script to export data to history Galaxy
 #COPY ./export.py /opt/python/galaxy-export/export.py
 
@@ -67,6 +68,7 @@ COPY shiny-server.sh /usr/bin/shiny-server.sh
 #COPY ./import_list_history.py /import_list_history.py
 #COPY ./global.r /srv/shiny-server/sample-apps/SIG/wallace/shiny/
 #COPY ./import_csv_user.py /import_csv_user.py
+
 
 RUN apt-get install -y vim
 CMD ["/usr/bin/shiny-server.sh"]
