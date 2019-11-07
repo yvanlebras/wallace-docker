@@ -1,3 +1,4 @@
+
 bcPlots_UI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -24,7 +25,7 @@ bcPlots_MOD <- function(input, output, session, rvs) {
     rvs$bcPlotsPar <- list(bc1=input$bc1, bc2=input$bc2, p=input$bcProb)
     rvs$comp7 <- isolate(c(rvs$comp7, 'bcPlot'))
     
-    # handle downloads for BIOCLIM Plots png
+    # handle galaxy export
     observeEvent(input$dlBcPlot_G, {
       png_name <- paste0("/var/log/shiny-server/",gsub(" ","_",spName(),fixed = TRUE),"_bc_plot.png")
       png(file=png_name)

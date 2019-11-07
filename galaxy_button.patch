@@ -1,0 +1,374 @@
+diff -Naur a/modules/mod_c1_galaxyOccs.R b/modules/mod_c1_galaxyOccs.R
+--- a/modules/mod_c1_galaxyOccs.R	1970-01-01 01:00:00.000000000 +0100
++++ b/modules/mod_c1_galaxyOccs.R	2019-11-07 17:07:15.671072833 +0100
+@@ -0,0 +1,84 @@
++galaxyOccs_UI <- function(id) {
++  ns <- NS(id)
++  python.load("/import_list_history.py")
++  x <- python.call("x")
++  v<-list()
++  # This one is a tricky one, if history contain many dataset, x is gonna be a list of list
++  # But in the case where there is only one dataset, x will be just a list.
++  # So I test the first element of the list, if it's a another list it will be a lenght more than 1
++  # else it's an element of the list, and length will be 1
++
++  l<-length(x[[1]])
++  if(l == 1) {
++     if(x$'extension' == 'csv'){
++            name<-paste(x$'hid',x$'name')
++            id<-unname(x$'hid')
++            v[[name]]<-id
++        }
++
++  }else{
++  l<-length(x)
++  for (y in 1:l) {
++        if(x[[y]]$'extension' == 'csv'){
++            name<-paste(x[[y]]$'hid',x[[y]]$'name')
++            id<-unname(x[[y]]$'hid')
++            v[[name]]<-id
++        }
++  }
++  }
++  tagList(
++    tags$div(title='Galaxy portal.',
++             selectInput(ns("userCSV"), label = "Select from your Galaxy History User csv file",
++                choices = v))
++         )
++
++  
++  }
++galaxyOccs_MOD <- function(input, output, session, rvs) {
++
++  readOccsCSV <- reactive({
++  print(input$userCSV)
++  command=paste('python /import_csv_user.py',input$userCSV)
++   system(command)
++    # make occDB record NULL to keep track of where occurrences are coming from
++    rvs$occDB <- NULL
++    # record for RMD
++    path=paste('/import/',input$userCSV,sep="")
++    csv <- read.csv(path)
++
++    spName <- trimws(as.character(csv$name[1]))
++
++    if (!all(c('name', 'longitude', 'latitude') %in% names(csv))) {
++      rvs %>% writeLog(type = "error", 'Please input CSV file with columns
++                        "name", "longitude", "latitude".')
++      return()
++    }
++
++
++    # subset to just records with first species name, and non-NA latitude and longitude
++    uoccs <- csv %>%
++      dplyr::filter(name == spName) %>%
++      dplyr::filter(!is.na(latitude) & !is.na(longitude))
++
++    if (nrow(uoccs) == 0) {
++      rvs %>% writeLog(type = 'warning', 'No records with coordinates found in',
++                        input$userCSV,"mor", spName, ".")
++      return()
++    }
++
++    rvs %>% writeLog("User-specified CSV file", input$userCSV, "with total of",
++                      nrow(uoccs), "records with coordinates was uploaded.")
++
++    for (col in c("year", "institutionCode", "country", "stateProvince",
++                  "locality", "elevation", "basisOfRecord")) {  # add all cols to match origOccs if not already there
++      if (!(col %in% names(uoccs))) uoccs[,col] <- NA
++    }
++
++    uoccs$occID <- row.names(uoccs)  # add col for IDs
++    uoccs$pop <- unlist(apply(uoccs, 1, popUpContent))  # add col for map marker popup text
++
++    return(uoccs)
++  })
++
++  return(readOccsCSV)
++}	
+diff -Naur a/modules/mod_c3_galaxyEnvs.R b/modules/mod_c3_galaxyEnvs.R
+--- a/modules/mod_c3_galaxyEnvs.R	1970-01-01 01:00:00.000000000 +0100
++++ b/modules/mod_c3_galaxyEnvs.R	2019-11-07 17:07:15.671072833 +0100
+@@ -0,0 +1,71 @@
++galaxyEnvs_UI <- function(id) {
++  ns <- NS(id)
++  python.load("/import_list_history.py")
++  x <- python.call("x")
++  v<-list()
++  # This one is a tricky one, if history contain many dataset, x is gonna be a list of list
++  # But in the case where there is only one dataset, x will be just a list.
++  # So I test the first element of the list, if it's a another list it will be a lenght more than 1
++  # else it's an element of the list, and length will be 1 
++  l<-length(x[[1]])
++  if(l==1) {
++            name<-paste(x$'hid',x$'name')
++            id<-unname(x$'hid')
++            v[[name]]<-id
++
++  }else {
++  l<-length(x)
++  for (y in 1:l) {
++        name<-paste(x[[y]]$'hid',x[[y]]$'name')
++        id<-unname(x[[y]]$'hid')
++        v[[name]]<-id
++  }
++}
++  tagList(
++    tags$div(title='Galaxy portal',
++             selectInput(ns("userEnvs"), label = "Select from your Galaxy History User raster file",
++                choices = v))
++         )
++
++}
++
++galaxyEnvs_MOD <- function(input, output, session, rvs) {
++  reactive({
++
++    if (is.null(rvs$occs)) {
++      rvs %>% writeLog(type = 'error', "Before obtaining environmental variables, 
++                       obtain occurrence data in component 1.")
++      return()
++    }
++    if (is.null(input$userEnvs)) {
++      rvs %>% writeLog(type = 'error', "Raster files not uploaded.")
++      return()
++    }  
++
++    # Import Galaxy
++    command=paste('python /import_csv_user.py',input$userEnvs)
++    system(command)
++    path=paste('/import/',input$userEnvs,sep="")
++    raster<-read.table(path)
++    # record for RMD
++    rvs$userEnvs <- raster
++    
++    withProgress(message = "Reading in rasters...", {
++      uenvs <- raster::stack(raster$datapath)
++      names(uenvs) <- fileNameNoExt(raster$name)
++    })
++    
++    rvs %>% writeLog("Environmental predictors: User input.")
++    
++    if (is.na(raster::crs(uenvs))) {
++      rvs %>% writeLog(type = "warning", "Input rasters have undefined coordinate 
++                       reference system (CRS). Mapping functionality in components 
++                       Visualize Model Results and Project Model will not work. If 
++                       you wish to map rasters in these components, please define 
++                       their projections and upload again. See guidance text in 
++                       this module for more details.")
++    }
++    
++    return(uenvs)
++  })
++}
+diff -Naur a/modules/mod_c4_galaxyBgExtend.R b/modules/mod_c4_galaxyBgExtend.R
+--- a/modules/mod_c4_galaxyBgExtend.R	1970-01-01 01:00:00.000000000 +0100
++++ b/modules/mod_c4_galaxyBgExtend.R	2019-11-07 17:07:15.671072833 +0100
+@@ -0,0 +1,109 @@
++galaxyBgExtent_UI <- function(id) {
++  ns <- NS(id)
++  python.load("/import_list_history.py")
++  x <- python.call("x")
++  v<-list()
++  # This one is a tricky one, if history contain many dataset, x is gonna be a list of list
++  # But in the case where there is only one dataset, x will be just a list.
++  # So I test the first element of the list, if it's a another list it will be a lenght more than 1
++  # else it's an element of the list, and length will be 1
++
++  l<-length(x[[1]])
++  if(l == 1) {
++     if(x$'extension' == 'csv'){
++            name<-paste(x$'hid',x$'name')
++            id<-unname(x$'hid')
++            v[[name]]<-id
++        }
++
++  }else{
++  l<-length(x)
++  for (y in 1:l) {
++        if(x[[y]]$'extension' == 'csv'){
++            name<-paste(x[[y]]$'hid',x[[y]]$'name')
++            id<-unname(x[[y]]$'hid')
++            v[[name]]<-id
++        }
++  }
++  }
++  tagList(
++    tags$div(title='Upload polygon with field order: longitude, latitude (.csv)',
++             selectInput(ns("userBgShp"), label = "Study region buffer distance (degree)",
++                choices = v)),
++         
++ tags$div(title='Buffer area in degrees (1 degree = ~111 km). Exact length varies based on latitudinal position.',
++numericInput(ns("userBgBuf"), label = "Study region buffer distance (degree)", value = 0, min = 0, step = 0.5))
++  )
++}
++
++
++galaxyBgExtent_MOD <- function(input, output, session, rvs) {
++  userBgShp <- reactive({
++    command=paste('python /import_csv_user.py', input$userBgShp)
++    system(command)
++    path=paste('/import/',input$userCSV,sep="")
++    f <- read.csv(path)
++    if (is.null(rvs$envs)) {
++      rvs %>% writeLog(type = 'error', 'Environmental variables missing. Obtain them
++                       in component 3.')
++      return()
++    }
++    if (is.null(f)) {
++      rvs %>% writeLog(type = 'error', 'Background extent files not uploaded.')
++      return()	
++    }
++    
++    # record for RMD
++    rvs$comp4.buf <- input$userBgBuf
++    
++    names <- f$name
++    inPath <- f$datapath
++    pathdir <- dirname(inPath)
++    pathfile <- basename(inPath)
++    # get extensions of all input files
++    exts <- sapply(strsplit(names, '\\.'), FUN=function(x) x[2])
++    
++    if (length(exts) == 1 & exts == 'csv') {
++      # record for RMD
++      rvs$comp4.shp <- 'csv'
++      rvs$bgUserCSVPath <- inPath
++      f <- read.csv(inPath, header = TRUE)
++      
++      bgExt <- sp::SpatialPolygons(list(sp::Polygons(list(sp::Polygon(f)), 1)))
++    } else if ('shp' %in% exts) {
++      if (length(exts) < 3) {
++        rvs %>% writeLog(type = 'error', 'If entering a shapefile, please select all the following files: .shp, .shx, .dbf.')
++        return()
++      }
++      file.rename(inPath, file.path(pathdir, names))
++      # get index of .shp
++      i <- which(exts == 'shp')
++      shpName <- strsplit(names[i], '\\.')[[1]][1]
++      # record for RMD
++      rvs$comp4.shp <- 'shp'
++      rvs$bgUserShpPar <- list(dsn=pathdir[i], layer=shpName)
++      # read in shapefile and extract coords
++      bgExt <- rgdal::readOGR(pathdir[i], shpName)
++    } else {
++      rvs %>% writeLog(type = 'error', 'Please enter either a CSV file of vertex coordinates or shapefile (.shp, .shx, .dbf).')
++      return()
++    }
++    rvs %>% writeLog("Study extent: user-defined polygon.")
++    return(bgExt)
++  })
++  
++  bufBg <- reactive({
++    req(userBgShp())
++    
++    bufWid <- input$userBgBuf
++    if (bufWid > 0) {
++      bgExt <- rgeos::gBuffer(userBgShp(), width = bufWid)
++      rvs %>% writeLog('Study extent buffered by', bufWid, 'degrees.')
++    } else {
++      bgExt <- userBgShp()
++    }
++    return(bgExt)
++  })
++  
++  return(bufBg)
++}
+diff -Naur a/modules/mod_c7_bcPlots.R b/modules/mod_c7_bcPlots.R
+--- a/modules/mod_c7_bcPlots.R	2019-11-07 17:11:26.497708295 +0100
++++ b/modules/mod_c7_bcPlots.R	2019-11-07 17:23:44.223753756 +0100
+@@ -8,6 +8,7 @@
+     numericInput(ns("bcProb"), "Set threshold", value = 0.9, min = 0.75, max = 1, step = 0.05),
+     HTML('<hr>'),
+     strong("Download envelope plot (.png)"), br(), br(),
++    actionButton(ns('dlBcPlot_G'), "Get in Galaxy"),
+     downloadButton(ns('dlBcPlot'), "Download")
+   )
+ }
+@@ -24,6 +25,15 @@
+     rvs$bcPlotsPar <- list(bc1=input$bc1, bc2=input$bc2, p=input$bcProb)
+     rvs$comp7 <- isolate(c(rvs$comp7, 'bcPlot'))
+     
++    # handle galaxy export
++    observeEvent(input$dlBcPlot_G, {
++      png_name <- paste0("/var/log/shiny-server/",gsub(" ","_",spName(),fixed = TRUE),"_bc_plot.png")
++      png(file=png_name)
++      bc.plot(rvs$mods[[1]], a = input$bc1, b = input$bc2, p = input$bcProb)
++      dev.off()
++      command<-paste("python /opt/python/galaxy-export/export.py",png_name,"auto")
++      system(command)
++    })
+     # handle downloads for BIOCLIM Plots png
+     output$dlBcPlot <- downloadHandler(
+       filename = function() {paste0(spName(), "_bc_plot.png")},
+diff -Naur a/modules/mod_c7_mxEvalPlots.R b/modules/mod_c7_mxEvalPlots.R
+--- a/modules/mod_c7_mxEvalPlots.R	2019-11-07 17:17:50.403089210 +0100
++++ b/modules/mod_c7_mxEvalPlots.R	2019-11-07 17:23:38.704805782 +0100
+@@ -9,6 +9,7 @@
+                 selected = 'avg.test.AUC'),
+     HTML('<hr>'),
+     strong("Download Maxent evaluation plot (.png)"), br(), br(),
++	actionButton(ns('dlMxEvalPlot_G'), "Get in Galaxy"),
+     downloadButton(ns('dlMxEvalPlot'), "Download")
+   )
+ }
+@@ -27,7 +28,21 @@
+     # record for RMD
+     rvs$mxEvalSel <- input$mxEvalSel
+     rvs$comp7 <- isolate(c(rvs$comp7, 'mxEval'))
+-
++    
++	
++	# handle downloads for Maxent Evaluation Plots png in Galaxy
++	observeEvent(input$dlMxEvalPlot_G ,{
++	owd <- setwd(tempdir())
++	on.exit(setwd(owd))
++	name<-paste0(spName(), "_maxent_eval_plot.png")
++	filename<-gsub(" ","_",name,fixed = TRUE)
++	png(file=filename)
++	evalPlot(rvs$modRes, input$mxEvalSel)
++        dev.off()
++	
++	command<-paste('python /opt/python/galaxy-export/export.py',filename,'auto')
++	system(command)
++	})
+     # handle downloads for Maxent Evaluation Plots png
+     output$dlMxEvalPlot <- downloadHandler(
+       filename = function() {paste0(spName(), "_",rvs$mxEvalSel,"_EvalPlot.png")},
+diff -Naur a/modules/mod_c7_respPlots.R b/modules/mod_c7_respPlots.R
+--- a/modules/mod_c7_respPlots.R	2019-11-07 17:17:50.403089210 +0100
++++ b/modules/mod_c7_respPlots.R	2019-11-07 17:23:30.913879227 +0100
+@@ -4,6 +4,7 @@
+   tagList(
+     strong("Download response plot (.png)"), br(),
+     checkboxInput(ns('dlRespPlotAll'), "All response plots?"),
++    actionButton(ns('dlRespPlot_G'), "Get in Galaxy"),
+     downloadButton(ns('dlRespPlot'), "Download")
+   )
+ }
+@@ -19,7 +20,24 @@
+     rvs$comp7 <- isolate(c(rvs$comp7, 'resp'))
+     
+     modCur <- rvs$mods[[rvs$modSel]]
+-    
++	
++    # handle downloads for Response Plots png in Galaxy
++    observeEvent(input$dlRespPlot_G ,{
++    owd <- setwd(tempdir())
++    on.exit(setwd(owd))
++	
++    name<-paste0(spName(), "_", rvs$envSel, "_response.png")
++    filename<-gsub(" ","_",name,fixed = TRUE)
++    png(file=filename)
++    if (input$dlRespPlotAll == TRUE) {
++        dismo::response(modCur)
++    } else {
++        dismo::response(modCur, var = rvs$envSel)  
++    }
++    dev.off()	
++    command<-paste('python /opt/python/galaxy-export/export.py',filename,'auto')
++    system(command)
++    })
+     # handle downloads for Response Plots png
+     if (input$dlRespPlotAll == FALSE) {
+       output$dlRespPlot <- downloadHandler(
